@@ -7,6 +7,7 @@ Small WinForms viewer that shows text files in tabs and optionally watches them 
 - Toggle watch on/off per tab; configurable refresh interval (seconds).
 - Optional line-level highlight of changes on each refresh.
 - Manual refresh button per tab.
+- Optional directory watcher that auto-opens new/updated files.
 
 ## Build / Run
 1. Install .NET 6+ SDK on Windows.
@@ -17,3 +18,4 @@ Small WinForms viewer that shows text files in tabs and optionally watches them 
 3. On startup, the app auto-loads text files in the app directory (`.txt`, `.log`, `.md`, `.csv`, `.json`, `.xml`).
 4. Click **Add File…** to open another text file. Each tab manages its own watch and highlight settings.
 5. Open tabs are remembered and restored on the next launch (missing files are skipped).
+6. Click **Add Dir…** to add a directory-watcher tab (it can auto-open new files in that directory).

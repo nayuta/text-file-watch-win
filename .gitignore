@@ -2,6 +2,7 @@
 bin/
 obj/
 bin2/
+artifacts/
 
 # Visual Studio / Rider
 .vs/
@@ -14,4 +15,3 @@ bin2/
 # Logs / state
 logs/
 *.log
-

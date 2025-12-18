@@ -10,10 +10,15 @@ public class MainForm : Form
     private readonly TabControl _tabControl;
     private readonly Button _addButton;
     private readonly Button _closeButton;
+    private readonly Button _addDirButton;
     private readonly Label _hintLabel;
     private readonly HashSet<string> _openPaths = new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly string[] DefaultExtensions = new[]
+    private string _watchedDirectory = string.Empty;
+    private TabPage? _directoryTab;
+    private DirectoryTabView? _directoryView;
+
+    internal static readonly string[] DefaultExtensions = new[]
     {
         ".txt",
         ".log",
@@ -53,6 +58,14 @@ public class MainForm : Form
         };
         _closeButton.Click += (_, _) => CloseSelectedTab();
 
+        _addDirButton = new Button
+        {
+            Text = "Add Dir…",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left
+        };
+        _addDirButton.Click += (_, _) => PromptAndAddDirectoryTab();
+
         _hintLabel = new Label
         {
             Text = "Add a file to start watching.",
@@ -66,10 +79,11 @@ public class MainForm : Form
             AutoSize = true,
             Padding = new Padding(8),
             FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false
+            WrapContents = true
         };
         topPanel.Controls.Add(_addButton);
         topPanel.Controls.Add(_closeButton);
+        topPanel.Controls.Add(_addDirButton);
         topPanel.Controls.Add(_hintLabel);
 
         Controls.Add(_tabControl);
@@ -78,6 +92,19 @@ public class MainForm : Form
         Shown += (_, _) => RestoreTabsOnStartup();
         FormClosing += (_, _) => PersistTabsOnExit();
         KeyDown += MainForm_KeyDown;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            if (_directoryView != null)
+            {
+                _directoryView.Dispose();
+                _directoryView = null;
+            }
+        }
+        base.Dispose(disposing);
     }
 
     private void PromptAndAddTab()
@@ -104,7 +131,10 @@ public class MainForm : Form
     private void RestoreTabsOnStartup()
     {
         var restoredAny = false;
-        var saved = AppStateStore.LoadOpenFiles();
+        var state = AppStateStore.Load();
+        var saved = state.OpenFiles;
+        _watchedDirectory = state.WatchedDirectory ?? Path.Combine(AppContext.BaseDirectory, "logs");
+
         for (var i = 0; i < saved.Count; i++)
         {
             var path = saved[i];
@@ -118,6 +148,9 @@ public class MainForm : Form
         if (!restoredAny)
             LoadAllTextFilesAtStartup();
 
+        if (state.WatchDirectoryEnabled && Directory.Exists(_watchedDirectory))
+            AddDirectoryTab(_watchedDirectory, select: false);
+
         if (_tabControl.TabPages.Count > 0)
             _tabControl.SelectedIndex = 0;
         UpdateCloseButtonState();
@@ -127,7 +160,7 @@ public class MainForm : Form
     {
         try
         {
-            AppStateStore.SaveOpenFiles(_openPaths);
+            AppStateStore.Save(_openPaths, _directoryView != null ? _watchedDirectory : null, _directoryView != null);
         }
         catch
         {
@@ -220,6 +253,17 @@ public class MainForm : Form
 
     private void CloseTab(TabPage tab)
     {
+        if (_directoryTab != null && ReferenceEquals(tab, _directoryTab))
+        {
+            if (_directoryView != null)
+            {
+                _directoryView.Dispose();
+                _directoryView = null;
+            }
+            _directoryTab = null;
+            _watchedDirectory = string.Empty;
+        }
+
         var path = tab.ToolTipText;
         if (!string.IsNullOrWhiteSpace(path))
             _openPaths.Remove(path);
@@ -287,5 +331,71 @@ public class MainForm : Form
                 return tabControl.TabPages[i];
         }
         return null;
+    }
+
+    private void PromptAndAddDirectoryTab()
+    {
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = "Select directory to watch (shows as a tab).",
+            UseDescriptionForTitle = true,
+            SelectedPath = string.IsNullOrWhiteSpace(_watchedDirectory) ? Path.Combine(AppContext.BaseDirectory, "logs") : _watchedDirectory
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        _watchedDirectory = dialog.SelectedPath;
+        AddDirectoryTab(_watchedDirectory, select: true);
+    }
+
+    private void AddDirectoryTab(string directory, bool select)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"Failed to watch directory: {ex.Message}", "Directory Watch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (_directoryView != null)
+        {
+            _directoryView.Dispose();
+            _directoryView = null;
+        }
+
+        _watchedDirectory = directory;
+        _directoryView = new DirectoryTabView(directory);
+        _directoryView.Dock = DockStyle.Fill;
+        _directoryView.OpenFileRequested += path => AddFileTab(path, select: true);
+
+        var title = $"Dir: {Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}";
+        var tab = new TabPage(title) { ToolTipText = directory };
+        tab.Controls.Add(_directoryView);
+
+        if (_directoryTab != null)
+        {
+            var index = _tabControl.TabPages.IndexOf(_directoryTab);
+            _tabControl.TabPages.Remove(_directoryTab);
+            _directoryTab.Dispose();
+            _directoryTab = tab;
+            _tabControl.TabPages.Insert(Math.Max(0, index), tab);
+        }
+        else
+        {
+            _directoryTab = tab;
+            _tabControl.TabPages.Add(tab);
+        }
+
+        if (select)
+            _tabControl.SelectedTab = tab;
+
+        UpdateCloseButtonState();
     }
 }
