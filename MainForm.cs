@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace TextFileWatch;
@@ -12,11 +13,9 @@ public class MainForm : Form
     private readonly Button _closeButton;
     private readonly Button _addDirButton;
     private readonly Label _hintLabel;
-    private readonly HashSet<string> _openPaths = new(StringComparer.OrdinalIgnoreCase);
-
-    private string _watchedDirectory = string.Empty;
-    private TabPage? _directoryTab;
-    private DirectoryTabView? _directoryView;
+    private readonly HashSet<string> _openFilePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TabPage> _openDirectoryTabs = new(StringComparer.OrdinalIgnoreCase);
+    private string _lastDirectoryDialogPath = string.Empty;
 
     internal static readonly string[] DefaultExtensions = new[]
     {
@@ -96,14 +95,6 @@ public class MainForm : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-        {
-            if (_directoryView != null)
-            {
-                _directoryView.Dispose();
-                _directoryView = null;
-            }
-        }
         base.Dispose(disposing);
     }
 
@@ -132,12 +123,13 @@ public class MainForm : Form
     {
         var restoredAny = false;
         var state = AppStateStore.Load();
-        var saved = state.OpenFiles;
-        _watchedDirectory = state.WatchedDirectory ?? Path.Combine(AppContext.BaseDirectory, "logs");
+        var savedFiles = state.OpenFiles;
+        var savedDirectories = state.OpenDirectories;
+        _lastDirectoryDialogPath = Path.Combine(AppContext.BaseDirectory, "logs");
 
-        for (var i = 0; i < saved.Count; i++)
+        for (var i = 0; i < savedFiles.Count; i++)
         {
-            var path = saved[i];
+            var path = savedFiles[i];
             if (string.IsNullOrWhiteSpace(path))
                 continue;
             if (!File.Exists(path))
@@ -145,11 +137,19 @@ public class MainForm : Form
             restoredAny |= AddFileTab(path, select: false);
         }
 
+        for (var i = 0; i < savedDirectories.Count; i++)
+        {
+            var directory = savedDirectories[i];
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+            AddDirectoryTab(directory, select: false);
+        }
+
+        if (_tabControl.TabPages.Count > 0)
+            _hintLabel.Visible = false;
+
         if (!restoredAny)
             LoadAllTextFilesAtStartup();
-
-        if (state.WatchDirectoryEnabled && Directory.Exists(_watchedDirectory))
-            AddDirectoryTab(_watchedDirectory, select: false);
 
         if (_tabControl.TabPages.Count > 0)
             _tabControl.SelectedIndex = 0;
@@ -160,7 +160,11 @@ public class MainForm : Form
     {
         try
         {
-            AppStateStore.Save(_openPaths, _directoryView != null ? _watchedDirectory : null, _directoryView != null);
+            var openFiles = _openFilePaths.ToList();
+            openFiles.Sort(StringComparer.OrdinalIgnoreCase);
+            var openDirectories = _openDirectoryTabs.Keys.ToList();
+            openDirectories.Sort(StringComparer.OrdinalIgnoreCase);
+            AppStateStore.Save(openFiles, openDirectories);
         }
         catch
         {
@@ -212,7 +216,7 @@ public class MainForm : Form
 
     private bool AddFileTab(string path, bool select = true)
     {
-        if (_openPaths.Contains(path))
+        if (_openFilePaths.Contains(path))
         {
             for (var i = 0; i < _tabControl.TabPages.Count; i++)
             {
@@ -234,7 +238,7 @@ public class MainForm : Form
         viewer.Dock = DockStyle.Fill;
         tab.Controls.Add(viewer);
         _tabControl.TabPages.Add(tab);
-        _openPaths.Add(path);
+        _openFilePaths.Add(path);
 
         _hintLabel.Visible = false;
         if (select)
@@ -253,20 +257,13 @@ public class MainForm : Form
 
     private void CloseTab(TabPage tab)
     {
-        if (_directoryTab != null && ReferenceEquals(tab, _directoryTab))
-        {
-            if (_directoryView != null)
-            {
-                _directoryView.Dispose();
-                _directoryView = null;
-            }
-            _directoryTab = null;
-            _watchedDirectory = string.Empty;
-        }
-
         var path = tab.ToolTipText;
         if (!string.IsNullOrWhiteSpace(path))
-            _openPaths.Remove(path);
+        {
+            _openFilePaths.Remove(path);
+            if (_openDirectoryTabs.Remove(path))
+                UpdateDirectoryTabTitles();
+        }
 
         _tabControl.TabPages.Remove(tab);
         tab.Dispose();
@@ -339,63 +336,171 @@ public class MainForm : Form
         {
             Description = "Select directory to watch (shows as a tab).",
             UseDescriptionForTitle = true,
-            SelectedPath = string.IsNullOrWhiteSpace(_watchedDirectory) ? Path.Combine(AppContext.BaseDirectory, "logs") : _watchedDirectory
+            SelectedPath = GetInitialDirectoryDialogPath()
         };
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
             return;
 
-        _watchedDirectory = dialog.SelectedPath;
-        AddDirectoryTab(_watchedDirectory, select: true);
+        _lastDirectoryDialogPath = dialog.SelectedPath;
+        AddDirectoryTab(dialog.SelectedPath, select: true);
     }
 
-    private void AddDirectoryTab(string directory, bool select)
+    private bool AddDirectoryTab(string directory, bool select)
     {
         if (string.IsNullOrWhiteSpace(directory))
-            return;
+            return false;
 
+        var normalizedDirectory = NormalizeDirectoryPath(directory);
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
+            return false;
+
+        if (_openDirectoryTabs.TryGetValue(normalizedDirectory, out var existingTab))
+        {
+            if (select)
+                _tabControl.SelectedTab = existingTab;
+            return false;
+        }
+
+        DirectoryTabView view;
         try
         {
-            Directory.CreateDirectory(directory);
+            view = new DirectoryTabView(normalizedDirectory);
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"Failed to watch directory: {ex.Message}", "Directory Watch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            return false;
         }
+        view.Dock = DockStyle.Fill;
+        view.OpenFileRequested += path => AddFileTab(path, select: true);
 
-        if (_directoryView != null)
+        var tab = new TabPage($"Dir: {Path.GetFileName(normalizedDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}")
         {
-            _directoryView.Dispose();
-            _directoryView = null;
-        }
+            ToolTipText = normalizedDirectory
+        };
+        tab.Controls.Add(view);
 
-        _watchedDirectory = directory;
-        _directoryView = new DirectoryTabView(directory);
-        _directoryView.Dock = DockStyle.Fill;
-        _directoryView.OpenFileRequested += path => AddFileTab(path, select: true);
+        _tabControl.TabPages.Add(tab);
+        _openDirectoryTabs[normalizedDirectory] = tab;
+        UpdateDirectoryTabTitles();
 
-        var title = $"Dir: {Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}";
-        var tab = new TabPage(title) { ToolTipText = directory };
-        tab.Controls.Add(_directoryView);
-
-        if (_directoryTab != null)
-        {
-            var index = _tabControl.TabPages.IndexOf(_directoryTab);
-            _tabControl.TabPages.Remove(_directoryTab);
-            _directoryTab.Dispose();
-            _directoryTab = tab;
-            _tabControl.TabPages.Insert(Math.Max(0, index), tab);
-        }
-        else
-        {
-            _directoryTab = tab;
-            _tabControl.TabPages.Add(tab);
-        }
-
+        _hintLabel.Visible = false;
         if (select)
             _tabControl.SelectedTab = tab;
 
         UpdateCloseButtonState();
+        return true;
+    }
+
+    private string GetInitialDirectoryDialogPath()
+    {
+        if (!string.IsNullOrWhiteSpace(_lastDirectoryDialogPath))
+            return _lastDirectoryDialogPath;
+        if (_openDirectoryTabs.Count > 0)
+            return _openDirectoryTabs.Keys.First();
+        return Path.Combine(AppContext.BaseDirectory, "logs");
+    }
+
+    private void UpdateDirectoryTabTitles()
+    {
+        if (_openDirectoryTabs.Count == 0)
+            return;
+
+        var directories = _openDirectoryTabs.Keys.ToList();
+        var titles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in directories)
+        {
+            titles[directory] = $"Dir: {GetUniqueDirectorySuffix(directory, directories)}";
+        }
+
+        foreach (var (directory, tab) in _openDirectoryTabs)
+        {
+            if (titles.TryGetValue(directory, out var title))
+                tab.Text = title;
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return directory;
+
+        var trimmed = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        try
+        {
+            return Path.GetFullPath(trimmed);
+        }
+        catch
+        {
+            return trimmed;
+        }
+    }
+
+    private static string GetUniqueDirectorySuffix(string directory, IReadOnlyList<string> allDirectories)
+    {
+        var segments = GetDirectorySegments(directory);
+        if (segments.Count == 0)
+            return directory;
+
+        var minSegments = segments.Count >= 2 ? 2 : 1;
+        for (var segmentCount = minSegments; segmentCount <= segments.Count; segmentCount++)
+        {
+            var suffix = JoinSuffix(segments, segmentCount);
+            var isUnique = true;
+            for (var i = 0; i < allDirectories.Count; i++)
+            {
+                var other = allDirectories[i];
+                if (string.Equals(other, directory, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (string.Equals(JoinSuffix(GetDirectorySegments(other), segmentCount), suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    isUnique = false;
+                    break;
+                }
+            }
+
+            if (isUnique)
+                return suffix;
+        }
+
+        return directory;
+    }
+
+    private static List<string> GetDirectorySegments(string directory)
+    {
+        var segments = new List<string>();
+        var current = directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        while (true)
+        {
+            var name = Path.GetFileName(current);
+            if (string.IsNullOrWhiteSpace(name))
+                break;
+
+            segments.Add(name);
+
+            var parent = Path.GetDirectoryName(current);
+            if (string.IsNullOrWhiteSpace(parent))
+                break;
+            if (string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+                break;
+            current = parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        return segments;
+    }
+
+    private static string JoinSuffix(List<string> leafToRootSegments, int segmentCount)
+    {
+        var take = Math.Min(segmentCount, leafToRootSegments.Count);
+        if (take <= 0)
+            return string.Empty;
+
+        var parts = new string[take];
+        for (var i = 0; i < take; i++)
+        {
+            parts[take - 1 - i] = leafToRootSegments[i];
+        }
+
+        return string.Join(Path.DirectorySeparatorChar, parts);
     }
 }

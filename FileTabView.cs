@@ -13,11 +13,13 @@ public sealed class FileTabView : UserControl
     private readonly FileDocument _document;
     private readonly WinFormsTimer _timer;
     private readonly RichTextBox _viewer;
+    private readonly Color _normalViewerForeColor;
     private readonly Label _statusLabel;
     private readonly NumericUpDown _intervalUpDown;
     private readonly CheckBox _watchCheck;
     private readonly CheckBox _highlightCheck;
     private readonly CheckBox _scrollToChangesCheck;
+    private bool _isMissing;
 
     public FileTabView(string path)
     {
@@ -33,6 +35,7 @@ public sealed class FileTabView : UserControl
             WordWrap = false,
             HideSelection = false
         };
+        _normalViewerForeColor = _viewer.ForeColor;
 
         var refreshButton = new Button
         {
@@ -147,7 +150,21 @@ public sealed class FileTabView : UserControl
         if (!force && !_watchCheck.Checked)
             return;
 
-        var result = _document.TryRefresh(force);
+        if (!File.Exists(_path))
+        {
+            ShowMissing($"File missing: {_path}");
+            _statusLabel.Text = $"File missing {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+            return;
+        }
+
+        var wasMissing = _isMissing;
+        if (wasMissing)
+        {
+            _isMissing = false;
+            _viewer.ForeColor = _normalViewerForeColor;
+        }
+
+        var result = _document.TryRefresh(force: force || wasMissing);
         if (!result.Success)
         {
             _statusLabel.Text = $"Error reading file: {result.ErrorMessage}";
@@ -162,6 +179,22 @@ public sealed class FileTabView : UserControl
         }
 
         _statusLabel.Text = $"Checked {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+    }
+
+    private void ShowMissing(string message)
+    {
+        if (_isMissing)
+            return;
+        _isMissing = true;
+
+        _viewer.SuspendLayout();
+        SetRedraw(_viewer, enabled: false);
+        _viewer.Clear();
+        _viewer.ForeColor = Color.DarkRed;
+        _viewer.AppendText(message);
+        SetRedraw(_viewer, enabled: true);
+        _viewer.Invalidate();
+        _viewer.ResumeLayout();
     }
 
     private void ApplyTextWithHighlight(string oldText, string newText)
