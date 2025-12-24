@@ -31,7 +31,7 @@ This file tracks the **required behaviors** for TextFileWatch and provides a lig
 
 ## Tab Management / UX
 - [ ] Tabs are large enough to be readable with many open items (scrolling/overflow behavior is acceptable).
-- [ ] Tabs have an in-tab close button (clickable “x”) in addition to the toolbar “Close Tab”.
+- [x] Tabs have an in-tab close button (clickable “x”) in addition to the toolbar “Close Tab”.
 - [ ] “Close Tab” button closes the selected tab (`MainForm.CloseSelectedTab`).
 - [ ] Ctrl+W closes the selected tab (`MainForm.MainForm_KeyDown`).
 - [ ] Right-click tab menu supports “Close / Close Others / Close All” (`MainForm.TabControl_MouseUp`).

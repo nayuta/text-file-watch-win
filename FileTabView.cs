@@ -20,6 +20,7 @@ public sealed class FileTabView : UserControl
     private readonly CheckBox _highlightCheck;
     private readonly CheckBox _scrollToChangesCheck;
     private bool _isMissing;
+    private bool _hasRenderedSnapshot;
 
     public FileTabView(string path)
     {
@@ -171,14 +172,31 @@ public sealed class FileTabView : UserControl
             return;
         }
 
-        if (result.Changed)
+        var now = DateTime.Now;
+        if (wasMissing)
         {
-            ApplyTextWithHighlight(result.OldText, result.NewText);
-            _statusLabel.Text = $"Updated {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+            ApplyTextPlain(_document.Text);
+            _hasRenderedSnapshot = true;
+            _statusLabel.Text = $"Recovered {now:yyyy-MM-dd HH:mm:ss}";
             return;
         }
 
-        _statusLabel.Text = $"Checked {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+        if (!_hasRenderedSnapshot)
+        {
+            ApplyTextPlain(_document.Text);
+            _hasRenderedSnapshot = true;
+            _statusLabel.Text = $"Loaded {now:yyyy-MM-dd HH:mm:ss}";
+            return;
+        }
+
+        if (result.Changed)
+        {
+            ApplyTextWithHighlight(result.OldText, result.NewText);
+            _statusLabel.Text = $"Updated {now:yyyy-MM-dd HH:mm:ss}";
+            return;
+        }
+
+        _statusLabel.Text = $"Checked {now:yyyy-MM-dd HH:mm:ss}";
     }
 
     private void ShowMissing(string message)
@@ -274,6 +292,17 @@ public sealed class FileTabView : UserControl
             }
         }
 
+        SetRedraw(_viewer, enabled: true);
+        _viewer.Invalidate();
+        _viewer.ResumeLayout();
+    }
+
+    private void ApplyTextPlain(string text)
+    {
+        _viewer.SuspendLayout();
+        SetRedraw(_viewer, enabled: false);
+        _viewer.Clear();
+        _viewer.AppendText(text);
         SetRedraw(_viewer, enabled: true);
         _viewer.Invalidate();
         _viewer.ResumeLayout();

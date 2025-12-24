@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using System.Windows.Forms.VisualStyles;
 
 namespace TextFileWatch;
 
@@ -21,6 +23,14 @@ public class MainForm : Form
     }
 
     private const string UnseenTabPrefix = "* ";
+    private const int TabCloseButtonLogicalSize = 12;
+    private const int TabCloseButtonLogicalPadding = 6;
+    private const int TabTextLogicalLeftPadding = 8;
+    private const int TabTextLogicalRightPadding = 2;
+    private const int TabMinWidthLogicalFew = 260;
+    private const int TabMinWidthLogicalMany = 140;
+    private const int TabMaxWidthLogical = 600;
+    private const int TabHeightLogical = 26;
 
     private readonly TabControl _tabControl;
     private readonly Button _addButton;
@@ -30,6 +40,7 @@ public class MainForm : Form
     private readonly HashSet<string> _openFilePaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TabPage> _openDirectoryTabs = new(StringComparer.OrdinalIgnoreCase);
     private string _lastDirectoryDialogPath = string.Empty;
+    private int _hoverCloseTabIndex = -1;
 
     internal static readonly string[] DefaultExtensions = new[]
     {
@@ -49,14 +60,24 @@ public class MainForm : Form
 
         _tabControl = new TabControl
         {
-            Dock = DockStyle.Fill
+            Dock = DockStyle.Fill,
+            DrawMode = TabDrawMode.OwnerDrawFixed,
+            SizeMode = TabSizeMode.Fixed
         };
+        _tabControl.DrawItem += TabControl_DrawItem;
+        _tabControl.MouseDown += TabControl_MouseDown;
+        _tabControl.MouseMove += TabControl_MouseMove;
+        _tabControl.MouseLeave += TabControl_MouseLeave;
+        _tabControl.MouseWheel += TabControl_MouseWheel;
+        _tabControl.Resize += (_, _) => UpdateTabItemSize();
         _tabControl.SelectedIndexChanged += (_, _) =>
         {
             MarkSelectedTabAsSeen();
             UpdateCloseButtonState();
+            UpdateTabItemSize();
         };
         _tabControl.MouseUp += TabControl_MouseUp;
+        UpdateTabItemSize();
 
         _addButton = new Button
         {
@@ -259,6 +280,7 @@ public class MainForm : Form
         tab.Controls.Add(viewer);
         _tabControl.TabPages.Add(tab);
         _openFilePaths.Add(path);
+        UpdateTabItemSize();
 
         _hintLabel.Visible = false;
         if (select)
@@ -282,6 +304,7 @@ public class MainForm : Form
 
         metadata.IsUnseen = false;
         ApplyTabText(tab);
+        UpdateTabItemSize();
     }
 
     private static void ApplyTabText(TabPage tab)
@@ -311,6 +334,7 @@ public class MainForm : Form
 
         _tabControl.TabPages.Remove(tab);
         tab.Dispose();
+        UpdateTabItemSize();
 
         if (_tabControl.TabPages.Count == 0)
             _hintLabel.Visible = true;
@@ -362,6 +386,229 @@ public class MainForm : Form
         });
 
         menu.Show(_tabControl, e.Location);
+    }
+
+    private void TabControl_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left)
+            return;
+
+        var tab = GetTabAt(_tabControl, e.Location);
+        if (tab == null)
+            return;
+
+        var tabIndex = _tabControl.TabPages.IndexOf(tab);
+        var tabRect = _tabControl.GetTabRect(tabIndex);
+        if (!GetTabCloseRect(tabRect).Contains(e.Location))
+            return;
+
+        _hoverCloseTabIndex = -1;
+        _tabControl.Cursor = Cursors.Default;
+        CloseTab(tab);
+    }
+
+    private void TabControl_MouseMove(object? sender, MouseEventArgs e)
+    {
+        var newHoverIndex = -1;
+        var tab = GetTabAt(_tabControl, e.Location);
+        if (tab != null)
+        {
+            var tabIndex = _tabControl.TabPages.IndexOf(tab);
+            var tabRect = _tabControl.GetTabRect(tabIndex);
+            if (GetTabCloseRect(tabRect).Contains(e.Location))
+                newHoverIndex = tabIndex;
+        }
+
+        if (newHoverIndex == _hoverCloseTabIndex)
+            return;
+
+        var previousHoverIndex = _hoverCloseTabIndex;
+        _hoverCloseTabIndex = newHoverIndex;
+        _tabControl.Cursor = _hoverCloseTabIndex >= 0 ? Cursors.Hand : Cursors.Default;
+        InvalidateTab(previousHoverIndex);
+        InvalidateTab(_hoverCloseTabIndex);
+    }
+
+    private void TabControl_MouseLeave(object? sender, EventArgs e)
+    {
+        if (_hoverCloseTabIndex < 0)
+            return;
+
+        var previousHoverIndex = _hoverCloseTabIndex;
+        _hoverCloseTabIndex = -1;
+        _tabControl.Cursor = Cursors.Default;
+        InvalidateTab(previousHoverIndex);
+    }
+
+    private void TabControl_MouseWheel(object? sender, MouseEventArgs e)
+    {
+        if (_tabControl.TabPages.Count <= 1)
+            return;
+
+        if (ModifierKeys != Keys.None)
+            return;
+
+        if (e.Delta == 0)
+            return;
+
+        var point = _tabControl.PointToClient(MousePosition);
+        var tab = GetTabAt(_tabControl, point);
+        if (tab == null)
+            return;
+
+        var direction = e.Delta < 0 ? 1 : -1;
+        var index = _tabControl.SelectedIndex;
+        if (index < 0)
+            index = _tabControl.TabPages.IndexOf(tab);
+
+        var next = index + direction;
+        if (next < 0)
+            next = 0;
+        if (next >= _tabControl.TabPages.Count)
+            next = _tabControl.TabPages.Count - 1;
+
+        _tabControl.SelectedIndex = next;
+    }
+
+    private void TabControl_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        var tab = _tabControl.TabPages[e.Index];
+        var tabRect = _tabControl.GetTabRect(e.Index);
+
+        var isSelected = (e.State & DrawItemState.Selected) != 0;
+        DrawTabBackground(e.Graphics, tabRect, isSelected, tab.BackColor);
+
+        var closeRect = GetTabCloseRect(tabRect);
+        if (closeRect.Left < tabRect.Left + 2)
+            closeRect = Rectangle.FromLTRB(tabRect.Left + 2, closeRect.Top, tabRect.Left + 2 + closeRect.Width, closeRect.Bottom);
+        if (closeRect.Right > tabRect.Right - 2)
+            closeRect = Rectangle.FromLTRB(tabRect.Right - 2 - closeRect.Width, closeRect.Top, tabRect.Right - 2, closeRect.Bottom);
+
+        var textRect = Rectangle.FromLTRB(
+            tabRect.Left + 8,
+            tabRect.Top + 2,
+            closeRect.Left - 2,
+            tabRect.Bottom - 2);
+        if (textRect.Right < textRect.Left)
+            textRect = Rectangle.FromLTRB(textRect.Left, textRect.Top, textRect.Left, textRect.Bottom);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            tab.Text,
+            tab.Font,
+            textRect,
+            SystemColors.ControlText,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        DrawTabCloseButton(e.Graphics, closeRect, isSelected, isHot: e.Index == _hoverCloseTabIndex);
+
+        e.DrawFocusRectangle();
+    }
+
+    private Rectangle GetTabCloseRect(Rectangle tabRect)
+    {
+        var scale = _tabControl.DeviceDpi / 96f;
+        var size = (int)Math.Round(TabCloseButtonLogicalSize * scale);
+        var padding = (int)Math.Round(TabCloseButtonLogicalPadding * scale);
+
+        var x = tabRect.Right - padding - size;
+        var y = tabRect.Top + (tabRect.Height - size) / 2;
+        return new Rectangle(x, y, size, size);
+    }
+
+    private static void DrawTabBackground(Graphics graphics, Rectangle tabRect, bool isSelected, Color tabPageBackColor)
+    {
+        if (TabRenderer.IsSupported)
+        {
+            TabRenderer.DrawTabItem(graphics, tabRect, isSelected ? TabItemState.Selected : TabItemState.Normal);
+            return;
+        }
+
+        var backColor = isSelected
+            ? (tabPageBackColor.IsEmpty ? SystemColors.Control : tabPageBackColor)
+            : SystemColors.ControlLight;
+
+        using var brush = new SolidBrush(backColor);
+        graphics.FillRectangle(brush, tabRect);
+        ControlPaint.DrawBorder(graphics, tabRect, SystemColors.ControlDark, ButtonBorderStyle.Solid);
+    }
+
+    private static void DrawTabCloseButton(Graphics graphics, Rectangle bounds, bool isSelected, bool isHot)
+    {
+        if (isHot)
+        {
+            using var hotBrush = new SolidBrush(Color.FromArgb(28, Color.Firebrick));
+            graphics.FillRectangle(hotBrush, bounds);
+        }
+
+        using var pen = new Pen(isHot ? Color.Firebrick : (isSelected ? SystemColors.ControlText : SystemColors.GrayText), 2);
+        var originalSmoothing = graphics.SmoothingMode;
+        graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        var inset = Math.Max(2, bounds.Width / 4);
+        var left = bounds.Left + inset;
+        var right = bounds.Right - inset;
+        var top = bounds.Top + inset;
+        var bottom = bounds.Bottom - inset;
+
+        graphics.DrawLine(pen, left, top, right, bottom);
+        graphics.DrawLine(pen, left, bottom, right, top);
+        graphics.SmoothingMode = originalSmoothing;
+    }
+
+    private void InvalidateTab(int tabIndex)
+    {
+        if (tabIndex < 0 || tabIndex >= _tabControl.TabPages.Count)
+            return;
+
+        try
+        {
+            _tabControl.Invalidate(_tabControl.GetTabRect(tabIndex));
+        }
+        catch
+        {
+            _tabControl.Invalidate();
+        }
+    }
+
+    private void UpdateTabItemSize()
+    {
+        if (_tabControl.TabPages.Count == 0)
+            return;
+
+        var scale = _tabControl.DeviceDpi / 96f;
+        var minWidthLogical = _tabControl.TabPages.Count <= 4 ? TabMinWidthLogicalFew : TabMinWidthLogicalMany;
+        var minWidth = (int)Math.Round(minWidthLogical * scale);
+        var maxWidth = (int)Math.Round(TabMaxWidthLogical * scale);
+        var height = (int)Math.Round(TabHeightLogical * scale);
+
+        var closeSize = (int)Math.Round(TabCloseButtonLogicalSize * scale);
+        var closePadding = (int)Math.Round(TabCloseButtonLogicalPadding * scale);
+        var leftPadding = (int)Math.Round(TabTextLogicalLeftPadding * scale);
+        var rightPadding = (int)Math.Round(TabTextLogicalRightPadding * scale);
+
+        var selectedTab = _tabControl.SelectedTab;
+        var textWidth = 0;
+        if (selectedTab != null)
+        {
+            var measured = TextRenderer.MeasureText(selectedTab.Text, selectedTab.Font, new Size(int.MaxValue, height), TextFormatFlags.SingleLine | TextFormatFlags.NoPadding);
+            textWidth = measured.Width;
+        }
+
+        var widthByText = leftPadding + textWidth + rightPadding + closePadding + closeSize;
+
+        var available = Math.Max(0, _tabControl.ClientSize.Width - 6);
+        var widthByCount = available > 0 ? available / _tabControl.TabPages.Count : maxWidth;
+
+        var absoluteMinimum = leftPadding + rightPadding + closePadding + closeSize + (int)Math.Round(24 * scale);
+        var width = Math.Min(widthByText, widthByCount);
+        width = Math.Clamp(width, Math.Max(minWidth, absoluteMinimum), maxWidth);
+
+        if (_tabControl.ItemSize.Width == width && _tabControl.ItemSize.Height == height)
+            return;
+
+        _tabControl.ItemSize = new Size(width, height);
+        _tabControl.Invalidate();
     }
 
     private static TabPage? GetTabAt(TabControl tabControl, System.Drawing.Point point)
@@ -429,6 +676,7 @@ public class MainForm : Form
         _tabControl.TabPages.Add(tab);
         _openDirectoryTabs[normalizedDirectory] = tab;
         UpdateDirectoryTabTitles();
+        UpdateTabItemSize();
 
         _hintLabel.Visible = false;
         if (select)
@@ -464,6 +712,7 @@ public class MainForm : Form
             if (titles.TryGetValue(directory, out var title))
                 tab.Text = title;
         }
+        UpdateTabItemSize();
     }
 
     private static string NormalizeDirectoryPath(string directory)
