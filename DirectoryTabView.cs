@@ -43,6 +43,13 @@ public sealed class DirectoryTabView : UserControl
         };
         openButton.Click += (_, _) => OpenSelected();
 
+        var closeOpenedButton = new Button
+        {
+            Text = "Close opened file tabs",
+            AutoSize = true
+        };
+        closeOpenedButton.Click += (_, _) => CloseOpenedFileTabs();
+
         _statusLabel = new Label
         {
             AutoSize = true,
@@ -60,6 +67,7 @@ public sealed class DirectoryTabView : UserControl
         top.Controls.Add(new Label { Text = directoryPath, AutoSize = true, MaximumSize = new System.Drawing.Size(900, 0), Padding = new Padding(0, 6, 0, 0) });
         top.Controls.Add(_autoOpenNewCheck);
         top.Controls.Add(openButton);
+        top.Controls.Add(closeOpenedButton);
         top.Controls.Add(_statusLabel);
 
         _listView = new ListView
@@ -89,6 +97,24 @@ public sealed class DirectoryTabView : UserControl
     public string DirectoryPath => _directoryPath;
 
     public event Action<string>? OpenFileRequested;
+    public event Func<string, int>? CloseOpenedFileTabsRequested;
+
+    private void CloseOpenedFileTabs()
+    {
+        var handler = CloseOpenedFileTabsRequested;
+        if (handler == null)
+            return;
+
+        try
+        {
+            var closed = handler.Invoke(_directoryPath);
+            _statusLabel.Text = closed > 0 ? $"Closed {closed} file tab(s)." : "No opened file tabs to close.";
+        }
+        catch (Exception ex)
+        {
+            _statusLabel.Text = $"Close tabs error: {ex.Message}";
+        }
+    }
 
     private void InitialScan(bool clearFirst)
     {

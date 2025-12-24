@@ -27,7 +27,7 @@ This file tracks the **required behaviors** for TextFileWatch and provides a lig
 - [ ] Directory rename/delete in parent folder is detected (parent watcher) (`DirectoryTabView.StartParentWatcher`, `DirectoryTabView.OnParentDirectoryChanged`).
 - [ ] “Auto-open new files” opens newly created/updated files in file tabs (`DirectoryTabView`, `MainForm.AddDirectoryTab` handler).
 - [ ] “Open selected” and double-click open the selected file (`DirectoryTabView.OpenSelected`).
-- [ ] Directory tab has “Close all opened file tabs” to close any file tabs that belong to that watched directory.
+- [x] Directory tab has “Close all opened file tabs” to close any file tabs that belong to that watched directory.
 
 ## Tab Management / UX
 - [ ] Tabs are large enough to be readable with many open items (scrolling/overflow behavior is acceptable).

@@ -8,6 +8,20 @@ namespace TextFileWatch;
 
 public class MainForm : Form
 {
+    private sealed class TabIndicatorMetadata
+    {
+        public string BaseText { get; }
+        public bool IsUnseen { get; set; }
+
+        public TabIndicatorMetadata(string baseText, bool isUnseen)
+        {
+            BaseText = baseText;
+            IsUnseen = isUnseen;
+        }
+    }
+
+    private const string UnseenTabPrefix = "* ";
+
     private readonly TabControl _tabControl;
     private readonly Button _addButton;
     private readonly Button _closeButton;
@@ -37,7 +51,11 @@ public class MainForm : Form
         {
             Dock = DockStyle.Fill
         };
-        _tabControl.SelectedIndexChanged += (_, _) => UpdateCloseButtonState();
+        _tabControl.SelectedIndexChanged += (_, _) =>
+        {
+            MarkSelectedTabAsSeen();
+            UpdateCloseButtonState();
+        };
         _tabControl.MouseUp += TabControl_MouseUp;
 
         _addButton = new Button
@@ -231,10 +249,12 @@ public class MainForm : Form
         }
 
         var viewer = new FileTabView(path);
-        var tab = new TabPage(Path.GetFileName(path))
+        var tab = new TabPage
         {
             ToolTipText = path
         };
+        tab.Tag = new TabIndicatorMetadata(Path.GetFileName(path), isUnseen: !select);
+        ApplyTabText(tab);
         viewer.Dock = DockStyle.Fill;
         tab.Controls.Add(viewer);
         _tabControl.TabPages.Add(tab);
@@ -246,6 +266,30 @@ public class MainForm : Form
 
         UpdateCloseButtonState();
         return true;
+    }
+
+    private void MarkSelectedTabAsSeen()
+    {
+        var tab = _tabControl.SelectedTab;
+        if (tab == null)
+            return;
+
+        if (tab.Tag is not TabIndicatorMetadata metadata)
+            return;
+
+        if (!metadata.IsUnseen)
+            return;
+
+        metadata.IsUnseen = false;
+        ApplyTabText(tab);
+    }
+
+    private static void ApplyTabText(TabPage tab)
+    {
+        if (tab.Tag is not TabIndicatorMetadata metadata)
+            return;
+
+        tab.Text = metadata.IsUnseen ? $"{UnseenTabPrefix}{metadata.BaseText}" : metadata.BaseText;
     }
 
     private void CloseSelectedTab()
@@ -374,6 +418,7 @@ public class MainForm : Form
         }
         view.Dock = DockStyle.Fill;
         view.OpenFileRequested += path => AddFileTab(path, select: true);
+        view.CloseOpenedFileTabsRequested += CloseFileTabsInDirectory;
 
         var tab = new TabPage($"Dir: {Path.GetFileName(normalizedDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))}")
         {
@@ -502,5 +547,55 @@ public class MainForm : Form
         }
 
         return string.Join(Path.DirectorySeparatorChar, parts);
+    }
+
+    private int CloseFileTabsInDirectory(string directory)
+    {
+        var normalizedDirectory = NormalizeDirectoryPath(directory);
+        if (string.IsNullOrWhiteSpace(normalizedDirectory))
+            return 0;
+
+        var directoryPrefix = EnsureTrailingSeparator(normalizedDirectory);
+
+        var tabsToClose = new List<TabPage>();
+        foreach (TabPage tab in _tabControl.TabPages)
+        {
+            var path = tab.ToolTipText;
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            if (!_openFilePaths.Contains(path))
+                continue;
+            if (!IsPathUnderDirectory(path, directoryPrefix))
+                continue;
+            tabsToClose.Add(tab);
+        }
+
+        foreach (var tab in tabsToClose)
+            CloseTab(tab);
+
+        return tabsToClose.Count;
+    }
+
+    private static string EnsureTrailingSeparator(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return directory;
+
+        return directory.EndsWith(Path.DirectorySeparatorChar) || directory.EndsWith(Path.AltDirectorySeparatorChar)
+            ? directory
+            : directory + Path.DirectorySeparatorChar;
+    }
+
+    private static bool IsPathUnderDirectory(string path, string directoryPrefixWithSeparator)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            return fullPath.StartsWith(directoryPrefixWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return path.StartsWith(directoryPrefixWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
     }
 }
