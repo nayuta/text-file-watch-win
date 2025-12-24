@@ -29,5 +29,9 @@ Small WinForms viewer that shows text files in tabs and optionally watches them 
 dotnet publish -c Release -r win-x64 --self-contained false
 ```
 
+## Lint / Format
+- Check: `scripts/lint.ps1` or `scripts/lint.sh`
+- Apply formatting: `scripts/lint.ps1 -Fix` or `scripts/lint.sh --fix`
+
 ## License
 MIT (see `LICENSE`).
