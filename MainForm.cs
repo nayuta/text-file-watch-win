@@ -41,6 +41,8 @@ public class MainForm : Form
     private readonly Dictionary<string, TabPage> _openDirectoryTabs = new(StringComparer.OrdinalIgnoreCase);
     private string _lastDirectoryDialogPath = string.Empty;
     private int _hoverCloseTabIndex = -1;
+    private TabPage? _dragCandidateTab;
+    private System.Drawing.Point _dragStartPoint;
 
     internal static readonly string[] DefaultExtensions = new[]
     {
@@ -49,7 +51,8 @@ public class MainForm : Form
         ".md",
         ".csv",
         ".json",
-        ".xml"
+        ".xml",
+        ".ini"
     };
 
     public MainForm()
@@ -62,13 +65,16 @@ public class MainForm : Form
         {
             Dock = DockStyle.Fill,
             DrawMode = TabDrawMode.OwnerDrawFixed,
-            SizeMode = TabSizeMode.Fixed
+            SizeMode = TabSizeMode.Fixed,
+            AllowDrop = true
         };
         _tabControl.DrawItem += TabControl_DrawItem;
         _tabControl.MouseDown += TabControl_MouseDown;
         _tabControl.MouseMove += TabControl_MouseMove;
         _tabControl.MouseLeave += TabControl_MouseLeave;
         _tabControl.MouseWheel += TabControl_MouseWheel;
+        _tabControl.DragOver += TabControl_DragOver;
+        _tabControl.DragDrop += TabControl_DragDrop;
         _tabControl.Resize += (_, _) => UpdateTabItemSize();
         _tabControl.SelectedIndexChanged += (_, _) =>
         {
@@ -141,8 +147,9 @@ public class MainForm : Form
     {
         using var dialog = new OpenFileDialog
         {
-            Filter = "Text files|*.txt;*.log;*.md;*.csv;*.json;*.xml|All files|*.*",
-            Multiselect = false
+            Filter = "Text files|*.txt;*.log;*.md;*.csv;*.json;*.xml;*.ini|All files|*.*",
+            Multiselect = false,
+            InitialDirectory = GetInitialDirectoryDialogPath()
         };
 
         if (dialog.ShowDialog(this) != DialogResult.OK)
@@ -154,6 +161,10 @@ public class MainForm : Form
             MessageBox.Show(this, "File does not exist.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
+
+        var parent = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(parent))
+            _lastDirectoryDialogPath = parent;
 
         AddFileTab(path);
     }
@@ -400,7 +411,11 @@ public class MainForm : Form
         var tabIndex = _tabControl.TabPages.IndexOf(tab);
         var tabRect = _tabControl.GetTabRect(tabIndex);
         if (!GetTabCloseRect(tabRect).Contains(e.Location))
+        {
+            _dragCandidateTab = tab;
+            _dragStartPoint = e.Location;
             return;
+        }
 
         _hoverCloseTabIndex = -1;
         _tabControl.Cursor = Cursors.Default;
@@ -409,6 +424,25 @@ public class MainForm : Form
 
     private void TabControl_MouseMove(object? sender, MouseEventArgs e)
     {
+        if (_dragCandidateTab != null && Control.MouseButtons.HasFlag(MouseButtons.Left))
+        {
+            var dragRect = new Rectangle(
+                _dragStartPoint.X - SystemInformation.DragSize.Width / 2,
+                _dragStartPoint.Y - SystemInformation.DragSize.Height / 2,
+                SystemInformation.DragSize.Width,
+                SystemInformation.DragSize.Height);
+
+            if (!dragRect.Contains(e.Location))
+            {
+                var tabToDrag = _dragCandidateTab;
+                _dragCandidateTab = null;
+                _hoverCloseTabIndex = -1;
+                _tabControl.Cursor = Cursors.Default;
+                _tabControl.DoDragDrop(tabToDrag, DragDropEffects.Move);
+                return;
+            }
+        }
+
         var newHoverIndex = -1;
         var tab = GetTabAt(_tabControl, e.Location);
         if (tab != null)
@@ -431,6 +465,7 @@ public class MainForm : Form
 
     private void TabControl_MouseLeave(object? sender, EventArgs e)
     {
+        _dragCandidateTab = null;
         if (_hoverCloseTabIndex < 0)
             return;
 
@@ -468,6 +503,44 @@ public class MainForm : Form
             next = _tabControl.TabPages.Count - 1;
 
         _tabControl.SelectedIndex = next;
+    }
+
+    private void TabControl_DragOver(object? sender, DragEventArgs e)
+    {
+        e.Effect = DragDropEffects.None;
+
+        if (!e.Data.GetDataPresent(typeof(TabPage)))
+            return;
+
+        var clientPoint = _tabControl.PointToClient(new System.Drawing.Point(e.X, e.Y));
+        var targetTab = GetTabAt(_tabControl, clientPoint);
+        if (targetTab == null)
+            return;
+
+        e.Effect = DragDropEffects.Move;
+    }
+
+    private void TabControl_DragDrop(object? sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(typeof(TabPage)))
+            return;
+
+        if (e.Data.GetData(typeof(TabPage)) is not TabPage draggedTab)
+            return;
+
+        var clientPoint = _tabControl.PointToClient(new System.Drawing.Point(e.X, e.Y));
+        var targetTab = GetTabAt(_tabControl, clientPoint);
+        if (targetTab == null)
+            return;
+
+        var fromIndex = _tabControl.TabPages.IndexOf(draggedTab);
+        var toIndex = _tabControl.TabPages.IndexOf(targetTab);
+        if (fromIndex < 0 || toIndex < 0 || fromIndex == toIndex)
+            return;
+
+        MoveTabPage(draggedTab, toIndex);
+        _tabControl.SelectedTab = draggedTab;
+        UpdateTabItemSize();
     }
 
     private void TabControl_DrawItem(object? sender, DrawItemEventArgs e)
@@ -569,6 +642,27 @@ public class MainForm : Form
         {
             _tabControl.Invalidate();
         }
+    }
+
+    private void MoveTabPage(TabPage tab, int newIndex)
+    {
+        var currentIndex = _tabControl.TabPages.IndexOf(tab);
+        if (currentIndex < 0)
+            return;
+
+        if (newIndex < 0)
+            newIndex = 0;
+        if (newIndex >= _tabControl.TabPages.Count)
+            newIndex = _tabControl.TabPages.Count - 1;
+
+        if (currentIndex == newIndex)
+            return;
+
+        _tabControl.SuspendLayout();
+        _tabControl.TabPages.Remove(tab);
+        _tabControl.TabPages.Insert(newIndex, tab);
+        _tabControl.ResumeLayout();
+        _tabControl.Invalidate();
     }
 
     private void UpdateTabItemSize()

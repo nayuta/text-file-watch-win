@@ -4,6 +4,10 @@ obj/
 bin2/
 artifacts/
 
+# Local tooling
+.vscode/
+.fleet/
+
 # Visual Studio / Rider
 .vs/
 .idea/
@@ -15,3 +19,21 @@ artifacts/
 # Logs / state
 logs/
 *.log
+
+# Secrets / credentials (never commit)
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+*.snk
+*.cer
+
+# OS / temp files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp

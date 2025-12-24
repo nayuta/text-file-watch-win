@@ -1,0 +1,14 @@
+# Normalize text files by default.
+* text=auto
+
+# Source / docs
+*.cs text eol=lf
+*.csproj text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf

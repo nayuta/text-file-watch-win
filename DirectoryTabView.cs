@@ -22,6 +22,7 @@ public sealed class DirectoryTabView : UserControl
     private string? _parentDirectoryPath;
     private string _directoryName;
     private bool _directoryExists;
+    private bool _hasDirectoryExistsState;
 
     public DirectoryTabView(string directoryPath)
     {
@@ -33,7 +34,8 @@ public sealed class DirectoryTabView : UserControl
         {
             Text = "Auto-open new files",
             Checked = true,
-            AutoSize = true
+            AutoSize = true,
+            Padding = new Padding(0, 2, 0, 0)
         };
 
         var openButton = new Button
@@ -53,22 +55,49 @@ public sealed class DirectoryTabView : UserControl
         _statusLabel = new Label
         {
             AutoSize = true,
-            Text = ""
+            Text = "",
+            Padding = new Padding(0, 2, 0, 0)
         };
 
-        var top = new FlowLayoutPanel
+        var toolbarMargin = new Padding(6, 4, 6, 0);
+        _autoOpenNewCheck.Margin = toolbarMargin;
+        openButton.Margin = toolbarMargin;
+        closeOpenedButton.Margin = toolbarMargin;
+        _statusLabel.Margin = toolbarMargin;
+
+        var pathLabel = new Label
+        {
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Text = directoryPath,
+            MaximumSize = new System.Drawing.Size(900, 0),
+            Padding = new Padding(0, 4, 0, 0)
+        };
+
+        var pathPanel = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            Padding = new Padding(6),
-            WrapContents = true
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            Padding = new Padding(6)
         };
-        top.Controls.Add(new Label { Text = "Dir:", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
-        top.Controls.Add(new Label { Text = directoryPath, AutoSize = true, MaximumSize = new System.Drawing.Size(900, 0), Padding = new Padding(0, 6, 0, 0) });
-        top.Controls.Add(_autoOpenNewCheck);
-        top.Controls.Add(openButton);
-        top.Controls.Add(closeOpenedButton);
-        top.Controls.Add(_statusLabel);
+        pathPanel.Controls.Add(new Label { Text = "Dir:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 4, 0, 0) });
+        pathPanel.Controls.Add(pathLabel);
+
+        var controlsPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoScroll = true,
+            Padding = new Padding(6)
+        };
+        controlsPanel.Controls.Add(_autoOpenNewCheck);
+        controlsPanel.Controls.Add(openButton);
+        controlsPanel.Controls.Add(closeOpenedButton);
+        controlsPanel.Controls.Add(_statusLabel);
 
         _listView = new ListView
         {
@@ -82,8 +111,10 @@ public sealed class DirectoryTabView : UserControl
         _listView.Columns.Add("Size", 100);
         _listView.DoubleClick += (_, _) => OpenSelected();
 
+        // Dock layout is applied in reverse z-order; add Fill first so it lays out last (no overlap).
         Controls.Add(_listView);
-        Controls.Add(top);
+        Controls.Add(controlsPanel);
+        Controls.Add(pathPanel);
 
         _debounceTimer = new WinFormsTimer { Interval = 250 };
         _debounceTimer.Tick += (_, _) => ProcessPending();
@@ -259,9 +290,10 @@ public sealed class DirectoryTabView : UserControl
 
     private void SetDirectoryExists(bool exists, string reason)
     {
-        if (_directoryExists == exists)
+        if (_hasDirectoryExistsState && _directoryExists == exists)
             return;
 
+        _hasDirectoryExistsState = true;
         _directoryExists = exists;
 
         lock (_gate)

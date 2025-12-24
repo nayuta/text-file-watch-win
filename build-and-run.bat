@@ -21,8 +21,10 @@ rem Close running app (with confirmation)
 tasklist /FI "IMAGENAME eq %EXE_NAME%" | find /I "%EXE_NAME%" >nul
 if not errorlevel 1 (
 echo %EXE_NAME% is currently running.
-choice /C YN /M "Close it now?"
-if errorlevel 2 (
+set "ANS="
+set /p "ANS=Close it now? [Y/n]: "
+if not defined ANS set "ANS=Y"
+if /I not "!ANS:~0,1!"=="Y" (
 echo Aborted.
 exit /b 1
 )
@@ -34,8 +36,10 @@ timeout /t 2 /nobreak >nul
 tasklist /FI "IMAGENAME eq %EXE_NAME%" | find /I "%EXE_NAME%" >nul
 if not errorlevel 1 (
 echo %EXE_NAME% is still running.
-choice /C YN /M "Force close it?"
-if errorlevel 2 (
+set "ANS="
+set /p "ANS=Force close it? [Y/n]: "
+if not defined ANS set "ANS=Y"
+if /I not "!ANS:~0,1!"=="Y" (
 echo Aborted.
 exit /b 1
 )

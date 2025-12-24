@@ -89,13 +89,33 @@ public sealed class FileTabView : UserControl
             Text = "Waiting for first refresh…"
         };
 
+        var toolbarMargin = new Padding(6, 4, 6, 0);
+        refreshButton.Margin = toolbarMargin;
+        _watchCheck.Margin = toolbarMargin;
+        _intervalUpDown.Margin = toolbarMargin;
+        _highlightCheck.Margin = toolbarMargin;
+        _scrollToChangesCheck.Margin = toolbarMargin;
+        _statusLabel.Margin = toolbarMargin;
+
         var pathLabel = new Label
         {
             AutoSize = true,
             Anchor = AnchorStyles.Left,
             Text = _path,
-            MaximumSize = new Size(900, 0)
+            MaximumSize = new Size(900, 0),
+            Padding = new Padding(0, 4, 0, 0)
         };
+
+        var intervalLabel = new Label
+        {
+            Text = "Interval (s):",
+            AutoSize = false,
+            Anchor = AnchorStyles.Left,
+            Height = _intervalUpDown.Height,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(6, 4, 2, 0)
+        };
+        intervalLabel.Width = TextRenderer.MeasureText(intervalLabel.Text, intervalLabel.Font, new Size(int.MaxValue, intervalLabel.Height), TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width + 2;
 
         var controls = new FlowLayoutPanel
         {
@@ -105,10 +125,10 @@ public sealed class FileTabView : UserControl
             WrapContents = true,
             Padding = new Padding(6)
         };
-        controls.Controls.Add(refreshButton);
         controls.Controls.Add(_watchCheck);
-        controls.Controls.Add(new Label { Text = "Interval (s):", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(6, 6, 2, 2) });
+        controls.Controls.Add(intervalLabel);
         controls.Controls.Add(_intervalUpDown);
+        controls.Controls.Add(refreshButton);
         controls.Controls.Add(_highlightCheck);
         controls.Controls.Add(_scrollToChangesCheck);
         controls.Controls.Add(_statusLabel);
@@ -121,7 +141,7 @@ public sealed class FileTabView : UserControl
             WrapContents = true,
             Padding = new Padding(6)
         };
-        pathPanel.Controls.Add(new Label { Text = "File:", AutoSize = true, Anchor = AnchorStyles.Left });
+        pathPanel.Controls.Add(new Label { Text = "File:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 4, 0, 0) });
         pathPanel.Controls.Add(pathLabel);
 
         // Dock layout is applied in reverse z-order; add Fill first so it lays out last (no overlap).

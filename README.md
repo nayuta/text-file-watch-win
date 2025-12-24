@@ -19,3 +19,15 @@ Small WinForms viewer that shows text files in tabs and optionally watches them 
 4. Click **Add File…** to open another text file. Each tab manages its own watch and highlight settings.
 5. Open tabs are remembered and restored on the next launch (missing files are skipped).
 6. Click **Add Dir…** to add a directory-watcher tab (it can auto-open new files in that directory).
+
+## State / Privacy
+- App state is stored locally at `%APPDATA%\\TextFileWatch\\state.json` (open tabs + watch settings).
+- No network calls are made by the app.
+
+## Publish
+```bash
+dotnet publish -c Release -r win-x64 --self-contained false
+```
+
+## License
+MIT (see `LICENSE`).
