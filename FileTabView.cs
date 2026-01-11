@@ -183,12 +183,24 @@ public sealed class FileTabView : UserControl
         controls.Controls.Add(refreshButton);
         controls.Controls.Add(_highlightCheck);
         controls.Controls.Add(_scrollToChangesCheck);
-        controls.Controls.Add(new Label { Text = "Find:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 4, 0, 0), Margin = toolbarMargin });
-        controls.Controls.Add(_findBox);
-        controls.Controls.Add(_findPrevButton);
-        controls.Controls.Add(_findNextButton);
-        controls.Controls.Add(_findMatchCaseCheck);
-        controls.Controls.Add(_findStatusLabel);
+
+        // Group find controls so they don't split when window is narrow
+        var findGroup = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            Margin = new Padding(0),
+            Padding = new Padding(0)
+        };
+        findGroup.Controls.Add(new Label { Text = "Find:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 4, 0, 0), Margin = toolbarMargin });
+        findGroup.Controls.Add(_findBox);
+        findGroup.Controls.Add(_findPrevButton);
+        findGroup.Controls.Add(_findNextButton);
+        findGroup.Controls.Add(_findMatchCaseCheck);
+        findGroup.Controls.Add(_findStatusLabel);
+        controls.Controls.Add(findGroup);
+
         controls.Controls.Add(_statusLabel);
 
         var pathPanel = new FlowLayoutPanel
