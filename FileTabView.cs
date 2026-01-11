@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -19,6 +20,12 @@ public sealed class FileTabView : UserControl
     private readonly CheckBox _watchCheck;
     private readonly CheckBox _highlightCheck;
     private readonly CheckBox _scrollToChangesCheck;
+    private readonly TextBox _findBox;
+    private readonly Button _findPrevButton;
+    private readonly Button _findNextButton;
+    private readonly CheckBox _findMatchCaseCheck;
+    private readonly Label _findStatusLabel;
+    private string _lastFindText = string.Empty;
     private bool _isMissing;
     private bool _hasRenderedSnapshot;
 
@@ -71,6 +78,46 @@ public sealed class FileTabView : UserControl
             Anchor = AnchorStyles.Left
         };
 
+        _findBox = new TextBox
+        {
+            Width = 220,
+            PlaceholderText = "Find…",
+            Anchor = AnchorStyles.Left
+        };
+        _findBox.TextChanged += (_, _) => _findStatusLabel.Text = "";
+        _findBox.KeyDown += FindBox_KeyDown;
+
+        _findPrevButton = new Button
+        {
+            Text = "Prev",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left
+        };
+        _findPrevButton.Click += (_, _) => FindPrevious();
+
+        _findNextButton = new Button
+        {
+            Text = "Next",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left
+        };
+        _findNextButton.Click += (_, _) => FindNext();
+
+        _findMatchCaseCheck = new CheckBox
+        {
+            Text = "Match case",
+            Checked = false,
+            AutoSize = true,
+            Anchor = AnchorStyles.Left
+        };
+
+        _findStatusLabel = new Label
+        {
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Text = ""
+        };
+
         _intervalUpDown = new NumericUpDown
         {
             Minimum = 1,
@@ -96,6 +143,11 @@ public sealed class FileTabView : UserControl
         _highlightCheck.Margin = toolbarMargin;
         _scrollToChangesCheck.Margin = toolbarMargin;
         _statusLabel.Margin = toolbarMargin;
+        _findBox.Margin = toolbarMargin;
+        _findPrevButton.Margin = toolbarMargin;
+        _findNextButton.Margin = toolbarMargin;
+        _findMatchCaseCheck.Margin = toolbarMargin;
+        _findStatusLabel.Margin = toolbarMargin;
 
         var pathLabel = new Label
         {
@@ -131,6 +183,12 @@ public sealed class FileTabView : UserControl
         controls.Controls.Add(refreshButton);
         controls.Controls.Add(_highlightCheck);
         controls.Controls.Add(_scrollToChangesCheck);
+        controls.Controls.Add(new Label { Text = "Find:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 4, 0, 0), Margin = toolbarMargin });
+        controls.Controls.Add(_findBox);
+        controls.Controls.Add(_findPrevButton);
+        controls.Controls.Add(_findNextButton);
+        controls.Controls.Add(_findMatchCaseCheck);
+        controls.Controls.Add(_findStatusLabel);
         controls.Controls.Add(_statusLabel);
 
         var pathPanel = new FlowLayoutPanel
@@ -154,6 +212,12 @@ public sealed class FileTabView : UserControl
         UpdateTimerInterval();
         UpdateTimerState();
         RefreshFromFile(force: true);
+    }
+
+    public void FocusSearch()
+    {
+        _findBox.Focus();
+        _findBox.SelectAll();
     }
 
     private void UpdateTimerInterval()
@@ -219,6 +283,98 @@ public sealed class FileTabView : UserControl
         _statusLabel.Text = $"Checked {now:yyyy-MM-dd HH:mm:ss}";
     }
 
+    private void FindBox_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Enter)
+        {
+            if (e.Shift)
+                FindPrevious();
+            else
+                FindNext();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
+        }
+
+        if (e.KeyCode == Keys.Escape)
+        {
+            _viewer.Focus();
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+        }
+    }
+
+    public bool FindNext()
+    {
+        return FindCore(reverse: false);
+    }
+
+    public bool FindPrevious()
+    {
+        return FindCore(reverse: true);
+    }
+
+    private bool FindCore(bool reverse)
+    {
+        var query = _findBox.Text;
+        if (string.IsNullOrEmpty(query))
+        {
+            _findStatusLabel.Text = "Empty";
+            return false;
+        }
+
+        var options = RichTextBoxFinds.None;
+        if (_findMatchCaseCheck.Checked)
+            options |= RichTextBoxFinds.MatchCase;
+        if (reverse)
+            options |= RichTextBoxFinds.Reverse;
+
+        var startIndex = reverse ? Math.Max(0, _viewer.SelectionStart - 1) : _viewer.SelectionStart + _viewer.SelectionLength;
+        if (!string.Equals(_lastFindText, query, StringComparison.Ordinal))
+        {
+            _lastFindText = query;
+            startIndex = reverse ? _viewer.TextLength : 0;
+        }
+
+        // For reverse: Find searches backwards from end to start, so pass (0, startIndex)
+        // For forward: Find searches from start to end, so pass (startIndex, TextLength)
+        var foundIndex = reverse
+            ? (startIndex > 0 ? _viewer.Find(query, 0, startIndex, options) : -1)
+            : _viewer.Find(query, startIndex, _viewer.TextLength, options);
+
+        var wrapped = false;
+        if (foundIndex < 0)
+        {
+            wrapped = true;
+            // Wrap: for reverse search from end back to startIndex, for forward from 0 to end
+            foundIndex = reverse
+                ? _viewer.Find(query, startIndex, _viewer.TextLength, options)
+                : _viewer.Find(query, 0, _viewer.TextLength, options);
+        }
+
+        if (foundIndex < 0)
+        {
+            _findStatusLabel.Text = "Not found";
+            return false;
+        }
+
+        // Select the found text and scroll to make it visible
+        // First scroll to the start position, then apply the full selection
+        _viewer.Select(foundIndex, 0);
+        _viewer.ScrollToCaret();
+        _viewer.Select(foundIndex, query.Length);
+
+        var line = _viewer.GetLineFromCharIndex(foundIndex);
+        var lineStart = _viewer.GetFirstCharIndexFromLine(line);
+        var col = foundIndex - Math.Max(0, lineStart);
+        var position = $"{line + 1}:{col + 1}";
+        if (wrapped)
+            _findStatusLabel.Text = reverse ? $"Passed start ({position})" : $"Passed end ({position})";
+        else
+            _findStatusLabel.Text = position;
+        return true;
+    }
+
     private void ShowMissing(string message)
     {
         if (_isMissing)
@@ -245,8 +401,10 @@ public sealed class FileTabView : UserControl
 
         var highlight = _highlightCheck.Checked;
         var scrollToChanges = _scrollToChangesCheck.Checked;
-        string[] newLines = newText.Replace("\r\n", "\n").Split('\n');
-        string[] oldLines = oldText.Replace("\r\n", "\n").Split('\n');
+        var normalizedNew = NormalizeLineEndingsToLf(newText);
+        var normalizedOld = NormalizeLineEndingsToLf(oldText);
+        string[] newLines = normalizedNew.Split('\n');
+        string[] oldLines = normalizedOld.Split('\n');
 
         var needDiff = highlight || scrollToChanges;
         bool[]? changed = null;
@@ -265,23 +423,28 @@ public sealed class FileTabView : UserControl
 
         _viewer.SuspendLayout();
         SetRedraw(_viewer, enabled: false);
-        _viewer.Clear();
-
-        for (int i = 0; i < newLines.Length; i++)
+        _viewer.Text = string.Join(Environment.NewLine, newLines);
+        if (_viewer.TextLength > 0)
         {
-            int start = _viewer.TextLength;
-            _viewer.AppendText(newLines[i]);
+            _viewer.Select(0, _viewer.TextLength);
+            _viewer.SelectionBackColor = _viewer.BackColor;
+        }
 
-            if (highlight && changed != null && i < changed.Length && changed[i])
+        if (highlight && changed != null)
+        {
+            var lineStarts = ComputeLineStarts(newLines, Environment.NewLine);
+            var maxHighlightLines = Math.Min(changed.Length, newLines.Length);
+            for (var i = 0; i < maxHighlightLines; i++)
             {
-                _viewer.Select(start, newLines[i].Length);
+                if (!changed[i])
+                    continue;
+                var start = lineStarts[i];
+                var length = newLines[i].Length;
+                if (length <= 0)
+                    continue;
+                _viewer.Select(start, length);
                 _viewer.SelectionBackColor = Color.LightGoldenrodYellow;
-                _viewer.Select(start + newLines[i].Length, 0);
-                _viewer.SelectionBackColor = _viewer.BackColor;
             }
-
-            if (i < newLines.Length - 1)
-                _viewer.AppendText(Environment.NewLine);
         }
 
         var maxIndex = _viewer.TextLength;
@@ -303,13 +466,13 @@ public sealed class FileTabView : UserControl
             {
                 ScrollToLineManaged(_viewer, Math.Min(firstChangedLine, GetLastLineIndex(_viewer)));
             }
-            else if (hasScrollPos && TrySetScrollPos(_viewer, scrollPos))
-            {
-            }
             else
             {
                 ScrollToLineManaged(_viewer, Math.Min(firstVisibleLine, GetLastLineIndex(_viewer)));
             }
+
+            if (hasScrollPos)
+                RestoreHorizontalScroll(_viewer, scrollPos.X);
         }
 
         SetRedraw(_viewer, enabled: true);
@@ -321,11 +484,54 @@ public sealed class FileTabView : UserControl
     {
         _viewer.SuspendLayout();
         SetRedraw(_viewer, enabled: false);
-        _viewer.Clear();
-        _viewer.AppendText(text);
+        _viewer.Text = ToViewerLineEndings(text);
+        if (_viewer.TextLength > 0)
+        {
+            _viewer.Select(0, _viewer.TextLength);
+            _viewer.SelectionBackColor = _viewer.BackColor;
+        }
+        _viewer.Select(0, 0);
         SetRedraw(_viewer, enabled: true);
+        _viewer.ScrollToCaret();
         _viewer.Invalidate();
         _viewer.ResumeLayout();
+    }
+
+    private static string NormalizeLineEndingsToLf(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+    }
+
+    private static string ToViewerLineEndings(string text)
+    {
+        var lf = NormalizeLineEndingsToLf(text);
+        return Environment.NewLine == "\n" ? lf : lf.Replace("\n", Environment.NewLine);
+    }
+
+    private static int[] ComputeLineStarts(IReadOnlyList<string> lines, string newline)
+    {
+        var starts = new int[lines.Count];
+        var index = 0;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            starts[i] = index;
+            index += lines[i].Length;
+            if (i < lines.Count - 1)
+                index += newline.Length;
+        }
+        return starts;
+    }
+
+    private static void RestoreHorizontalScroll(RichTextBox viewer, int desiredX)
+    {
+        if (!viewer.IsHandleCreated)
+            return;
+        if (!TryGetScrollPos(viewer, out var current))
+            return;
+        var target = new POINT { X = desiredX, Y = current.Y };
+        TrySetScrollPos(viewer, target);
     }
 
     private static bool IsAtBottom(RichTextBox viewer)
@@ -414,6 +620,11 @@ public sealed class FileTabView : UserControl
             _watchCheck.Dispose();
             _highlightCheck.Dispose();
             _scrollToChangesCheck.Dispose();
+            _findBox.Dispose();
+            _findPrevButton.Dispose();
+            _findNextButton.Dispose();
+            _findMatchCaseCheck.Dispose();
+            _findStatusLabel.Dispose();
         }
 
         base.Dispose(disposing);
