@@ -33,6 +33,7 @@ public class MainForm : Form
     private const int TabHeightLogical = 26;
 
     private readonly TabControl _tabControl;
+    private readonly TextBox _emptyTextBox;
     private readonly Button _addButton;
     private readonly Button _closeButton;
     private readonly Button _addDirButton;
@@ -114,7 +115,20 @@ public class MainForm : Form
         {
             Text = "Add a file to start watching.",
             AutoSize = true,
-            Anchor = AnchorStyles.Left
+            Anchor = AnchorStyles.Left,
+            Visible = false
+        };
+
+        _emptyTextBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            WordWrap = false,
+            ScrollBars = ScrollBars.Both,
+            Font = new Font(FontFamily.GenericMonospace, 10),
+            TabStop = false,
+            Visible = false
         };
 
         var topPanel = new FlowLayoutPanel
@@ -130,7 +144,14 @@ public class MainForm : Form
         topPanel.Controls.Add(_addDirButton);
         topPanel.Controls.Add(_hintLabel);
 
-        Controls.Add(_tabControl);
+        var contentPanel = new Panel
+        {
+            Dock = DockStyle.Fill
+        };
+        contentPanel.Controls.Add(_tabControl);
+        contentPanel.Controls.Add(_emptyTextBox);
+
+        Controls.Add(contentPanel);
         Controls.Add(topPanel);
 
         Shown += (_, _) => RestoreTabsOnStartup();
@@ -141,6 +162,14 @@ public class MainForm : Form
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
+    }
+
+    private void UpdateEmptyState()
+    {
+        var hasTabs = _tabControl.TabPages.Count > 0;
+        _tabControl.Visible = hasTabs;
+        _emptyTextBox.Visible = !hasTabs;
+        _hintLabel.Visible = !hasTabs;
     }
 
     private void PromptAndAddTab()
@@ -195,15 +224,13 @@ public class MainForm : Form
             AddDirectoryTab(directory, select: false);
         }
 
-        if (_tabControl.TabPages.Count > 0)
-            _hintLabel.Visible = false;
-
         if (!restoredAny)
             LoadAllTextFilesAtStartup();
 
         if (_tabControl.TabPages.Count > 0)
             _tabControl.SelectedIndex = 0;
         UpdateCloseButtonState();
+        UpdateEmptyState();
     }
 
     private void PersistTabsOnExit()
@@ -258,10 +285,8 @@ public class MainForm : Form
 
             anyAdded |= AddFileTab(path, select: false);
         }
-
-        if (anyAdded)
-            _hintLabel.Visible = false;
         UpdateCloseButtonState();
+        UpdateEmptyState();
     }
 
     private bool AddFileTab(string path, bool select = true)
@@ -293,11 +318,11 @@ public class MainForm : Form
         _openFilePaths.Add(path);
         UpdateTabItemSize();
 
-        _hintLabel.Visible = false;
         if (select)
             _tabControl.SelectedTab = tab;
 
         UpdateCloseButtonState();
+        UpdateEmptyState();
         return true;
     }
 
@@ -347,10 +372,8 @@ public class MainForm : Form
         tab.Dispose();
         UpdateTabItemSize();
 
-        if (_tabControl.TabPages.Count == 0)
-            _hintLabel.Visible = true;
-
         UpdateCloseButtonState();
+        UpdateEmptyState();
     }
 
     private void UpdateCloseButtonState()
@@ -364,7 +387,43 @@ public class MainForm : Form
         {
             CloseSelectedTab();
             e.Handled = true;
+            e.SuppressKeyPress = true;
+            return;
         }
+
+        if (e.Control && e.KeyCode == Keys.F)
+        {
+            var view = GetSelectedFileTabView();
+            if (view != null)
+            {
+                view.FocusSearch();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            return;
+        }
+
+        if (!e.Control && e.KeyCode == Keys.F3)
+        {
+            var view = GetSelectedFileTabView();
+            if (view != null)
+            {
+                if (e.Shift)
+                    view.FindPrevious();
+                else
+                    view.FindNext();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+        }
+    }
+
+    private FileTabView? GetSelectedFileTabView()
+    {
+        var tab = _tabControl.SelectedTab;
+        if (tab == null || tab.Controls.Count == 0)
+            return null;
+        return tab.Controls[0] as FileTabView;
     }
 
     private void TabControl_MouseUp(object? sender, MouseEventArgs e)
@@ -772,11 +831,11 @@ public class MainForm : Form
         UpdateDirectoryTabTitles();
         UpdateTabItemSize();
 
-        _hintLabel.Visible = false;
         if (select)
             _tabControl.SelectedTab = tab;
 
         UpdateCloseButtonState();
+        UpdateEmptyState();
         return true;
     }
 
