@@ -479,7 +479,6 @@ public class MainForm : Form
                 CloseTab(_tabControl.TabPages[i]);
         });
 
-
         if (IsDirectoryTab(tab))
         {
             menu.Items.Add("Close All But This Directory", null, (_, _) =>
