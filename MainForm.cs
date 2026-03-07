@@ -398,6 +398,9 @@ public class MainForm : Form
             if (!ReferenceEquals(tab, directoryTab))
                 CloseTab(tab);
         }
+
+        if (_tabControl.TabPages.Contains(directoryTab))
+            _tabControl.SelectedTab = directoryTab;
     }
 
     private void UpdateCloseButtonState()
@@ -481,6 +484,7 @@ public class MainForm : Form
 
         if (IsDirectoryTab(tab))
         {
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Close All But This Directory", null, (_, _) =>
             {
                 CloseAllButThisDirectory(tab);
