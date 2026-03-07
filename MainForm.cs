@@ -376,6 +376,30 @@ public class MainForm : Form
         UpdateEmptyState();
     }
 
+    private bool IsDirectoryTab(TabPage tab)
+    {
+        if (tab == null || tab.Controls.Count == 0)
+            return false;
+        
+        return tab.Controls[0] is DirectoryTabView;
+    }
+
+    private void CloseAllButThisDirectory(TabPage directoryTab)
+    {
+        if (directoryTab == null)
+            return;
+        
+        if (!IsDirectoryTab(directoryTab))
+            return;
+        
+        for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
+        {
+            var tab = _tabControl.TabPages[i];
+            if (!ReferenceEquals(tab, directoryTab))
+                CloseTab(tab);
+        }
+    }
+
     private void UpdateCloseButtonState()
     {
         _closeButton.Enabled = _tabControl.TabPages.Count > 0;
@@ -455,6 +479,14 @@ public class MainForm : Form
                 CloseTab(_tabControl.TabPages[i]);
         });
 
+
+        if (IsDirectoryTab(tab))
+        {
+            menu.Items.Add("Close All But This Directory", null, (_, _) =>
+            {
+                CloseAllButThisDirectory(tab);
+            });
+        }
         menu.Show(_tabControl, e.Location);
     }
 
