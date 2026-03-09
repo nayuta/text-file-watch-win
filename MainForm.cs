@@ -37,6 +37,7 @@ public class MainForm : Form
     private readonly Button _addButton;
     private readonly Button _closeButton;
     private readonly Button _addDirButton;
+    private readonly Button _closeFileTabsButton;
     private readonly Label _hintLabel;
     private readonly HashSet<string> _openFilePaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TabPage> _openDirectoryTabs = new(StringComparer.OrdinalIgnoreCase);
@@ -111,6 +112,15 @@ public class MainForm : Form
         };
         _addDirButton.Click += (_, _) => PromptAndAddDirectoryTab();
 
+        _closeFileTabsButton = new Button
+        {
+            Text = "Close File Tabs",
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
+            Enabled = false
+        };
+        _closeFileTabsButton.Click += (_, _) => CloseAllFileTabs();
+
         _hintLabel = new Label
         {
             Text = "Add a file to start watching.",
@@ -142,6 +152,7 @@ public class MainForm : Form
         topPanel.Controls.Add(_addButton);
         topPanel.Controls.Add(_closeButton);
         topPanel.Controls.Add(_addDirButton);
+        topPanel.Controls.Add(_closeFileTabsButton);
         topPanel.Controls.Add(_hintLabel);
 
         var contentPanel = new Panel
@@ -397,17 +408,20 @@ public class MainForm : Form
         return tab.Controls[0] is DirectoryTabView;
     }
 
-    private void CloseAllButThisDirectory(TabPage directoryTab)
+    private void CloseAllFileTabs()
     {
-        if (directoryTab == null || !IsDirectoryTab(directoryTab))
-            return;
-
-        CloseAllExcept(directoryTab);
+        for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
+        {
+            var tab = _tabControl.TabPages[i];
+            if (!IsDirectoryTab(tab))
+                CloseTab(tab);
+        }
     }
 
     private void UpdateCloseButtonState()
     {
         _closeButton.Enabled = _tabControl.TabPages.Count > 0;
+        _closeFileTabsButton.Enabled = _openFilePaths.Count > 0;
     }
 
     private void MainForm_KeyDown(object? sender, KeyEventArgs e)
@@ -475,14 +489,6 @@ public class MainForm : Form
                 CloseTab(_tabControl.TabPages[i]);
         });
 
-        if (IsDirectoryTab(tab))
-        {
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Close All But This Directory", null, (_, _) =>
-            {
-                CloseAllButThisDirectory(tab);
-            });
-        }
         menu.Show(_tabControl, e.Location);
     }
 
