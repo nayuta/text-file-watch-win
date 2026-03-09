@@ -468,28 +468,21 @@ public class MainForm : Form
 
         using var menu = new ContextMenuStrip();
         menu.Items.Add("Close", null, (_, _) => CloseTab(tab));
-
-        if (IsDirectoryTab(tab))
-        {
-            menu.Items.Add("Close All But This Directory", null, (_, _) =>
-            {
-                CloseAllButThisDirectory(tab);
-            });
-        }
-        else
-        {
-            menu.Items.Add("Close Others", null, (_, _) =>
-            {
-                CloseAllExcept(tab);
-            });
-        }
-
+        menu.Items.Add("Close Others", null, (_, _) => CloseAllExcept(tab));
         menu.Items.Add("Close All", null, (_, _) =>
         {
             for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
                 CloseTab(_tabControl.TabPages[i]);
         });
 
+        if (IsDirectoryTab(tab))
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Close All But This Directory", null, (_, _) =>
+            {
+                CloseAllButThisDirectory(tab);
+            });
+        }
         menu.Show(_tabControl, e.Location);
     }
 
