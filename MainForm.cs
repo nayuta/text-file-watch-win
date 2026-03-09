@@ -358,6 +358,19 @@ public class MainForm : Form
         CloseTab(_tabControl.SelectedTab);
     }
 
+    private void CloseAllExcept(TabPage keep)
+    {
+        for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
+        {
+            var tab = _tabControl.TabPages[i];
+            if (!ReferenceEquals(tab, keep))
+                CloseTab(tab);
+        }
+
+        if (_tabControl.TabPages.Contains(keep))
+            _tabControl.SelectedTab = keep;
+    }
+
     private void CloseTab(TabPage tab)
     {
         var path = tab.ToolTipText;
@@ -386,21 +399,10 @@ public class MainForm : Form
 
     private void CloseAllButThisDirectory(TabPage directoryTab)
     {
-        if (directoryTab == null)
+        if (directoryTab == null || !IsDirectoryTab(directoryTab))
             return;
-        
-        if (!IsDirectoryTab(directoryTab))
-            return;
-        
-        for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
-        {
-            var tab = _tabControl.TabPages[i];
-            if (!ReferenceEquals(tab, directoryTab))
-                CloseTab(tab);
-        }
 
-        if (_tabControl.TabPages.Contains(directoryTab))
-            _tabControl.SelectedTab = directoryTab;
+        CloseAllExcept(directoryTab);
     }
 
     private void UpdateCloseButtonState()
@@ -466,30 +468,28 @@ public class MainForm : Form
 
         using var menu = new ContextMenuStrip();
         menu.Items.Add("Close", null, (_, _) => CloseTab(tab));
-        menu.Items.Add("Close Others", null, (_, _) =>
+
+        if (IsDirectoryTab(tab))
         {
-            var keep = tab;
-            for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
+            menu.Items.Add("Close All But This Directory", null, (_, _) =>
             {
-                var t = _tabControl.TabPages[i];
-                if (!ReferenceEquals(t, keep))
-                    CloseTab(t);
-            }
-        });
+                CloseAllButThisDirectory(tab);
+            });
+        }
+        else
+        {
+            menu.Items.Add("Close Others", null, (_, _) =>
+            {
+                CloseAllExcept(tab);
+            });
+        }
+
         menu.Items.Add("Close All", null, (_, _) =>
         {
             for (var i = _tabControl.TabPages.Count - 1; i >= 0; i--)
                 CloseTab(_tabControl.TabPages[i]);
         });
 
-        if (IsDirectoryTab(tab))
-        {
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("Close All But This Directory", null, (_, _) =>
-            {
-                CloseAllButThisDirectory(tab);
-            });
-        }
         menu.Show(_tabControl, e.Location);
     }
 
