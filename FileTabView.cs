@@ -467,29 +467,29 @@ public sealed class FileTabView : UserControl
 
         _viewer.Select(selectionStart, selectionLength);
 
-        if (wasAtBottom)
-        {
-            _viewer.Select(_viewer.TextLength, 0);
-            _viewer.ScrollToCaret();
-        }
-        else
-        {
-            if (scrollToChanges && firstChangedLine >= 0)
-            {
-                ScrollToLineManaged(_viewer, Math.Min(firstChangedLine, GetLastLineIndex(_viewer)));
-            }
-            else
-            {
-                ScrollToLineManaged(_viewer, Math.Min(firstVisibleLine, GetLastLineIndex(_viewer)));
-            }
-
-            if (hasScrollPos)
-                RestoreHorizontalScroll(_viewer, scrollPos.X);
-        }
-
         SetRedraw(_viewer, enabled: true);
         _viewer.Invalidate();
         _viewer.ResumeLayout();
+
+        if (wasAtBottom)
+        {
+            DeferViewerScroll(() =>
+            {
+                _viewer.Select(_viewer.TextLength, 0);
+                _viewer.ScrollToCaret();
+            });
+        }
+        else
+        {
+            var targetLine = scrollToChanges && firstChangedLine >= 0 ? firstChangedLine : firstVisibleLine;
+            var targetX = hasScrollPos ? scrollPos.X : (int?)null;
+            DeferViewerScroll(() =>
+            {
+                ScrollToLine(_viewer, Math.Min(targetLine, GetLastLineIndex(_viewer)));
+                if (targetX.HasValue)
+                    RestoreHorizontalScroll(_viewer, targetX.Value);
+            });
+        }
     }
 
     private void ApplyTextPlain(string text)
@@ -504,9 +504,9 @@ public sealed class FileTabView : UserControl
         }
         _viewer.Select(0, 0);
         SetRedraw(_viewer, enabled: true);
-        _viewer.ScrollToCaret();
         _viewer.Invalidate();
         _viewer.ResumeLayout();
+        DeferViewerScroll(() => _viewer.ScrollToCaret());
     }
 
     private static string NormalizeLineEndingsToLf(string text)
@@ -534,6 +534,22 @@ public sealed class FileTabView : UserControl
                 index += newline.Length;
         }
         return starts;
+    }
+
+    private void DeferViewerScroll(Action scrollAction)
+    {
+        if (IsDisposed || !IsHandleCreated)
+            return;
+
+        BeginInvoke((Action)(() =>
+        {
+            if (IsDisposed || _viewer.IsDisposed || !_viewer.IsHandleCreated)
+                return;
+
+            scrollAction();
+            ClampVerticalScroll(_viewer);
+            _viewer.Invalidate();
+        }));
     }
 
     private static void RestoreHorizontalScroll(RichTextBox viewer, int desiredX)
@@ -571,15 +587,55 @@ public sealed class FileTabView : UserControl
         return viewer.GetLineFromCharIndex(Math.Max(0, charIndex));
     }
 
-    private static void ScrollToLineManaged(RichTextBox viewer, int firstVisibleLine)
+    private static void ScrollToLine(RichTextBox viewer, int firstVisibleLine)
     {
         if (firstVisibleLine <= 0)
             return;
+
+        if (TryScrollToFirstVisibleLine(viewer, firstVisibleLine))
+            return;
+
         var charIndex = viewer.GetFirstCharIndexFromLine(firstVisibleLine);
         if (charIndex < 0)
             return;
         viewer.Select(charIndex, 0);
         viewer.ScrollToCaret();
+    }
+
+    private static void ClampVerticalScroll(RichTextBox viewer)
+    {
+        if (!viewer.IsHandleCreated || viewer.TextLength == 0)
+            return;
+
+        var visibleLineCount = Math.Max(1, viewer.ClientSize.Height / Math.Max(1, viewer.Font.Height));
+        var lastLine = GetLastLineIndex(viewer);
+        var maxFirstLine = Math.Max(0, lastLine - visibleLineCount + 1);
+        var currentFirstLine = GetFirstVisibleLineNative(viewer);
+        if (currentFirstLine > maxFirstLine)
+            TryScrollToFirstVisibleLine(viewer, maxFirstLine);
+    }
+
+    private static int GetFirstVisibleLineNative(RichTextBox viewer)
+    {
+        if (!viewer.IsHandleCreated)
+            return GetFirstVisibleLineManaged(viewer);
+
+        return (int)SendMessage(viewer.Handle, EM_GETFIRSTVISIBLELINE, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    private static bool TryScrollToFirstVisibleLine(RichTextBox viewer, int firstVisibleLine)
+    {
+        if (!viewer.IsHandleCreated)
+            return false;
+
+        firstVisibleLine = Math.Max(0, Math.Min(firstVisibleLine, GetLastLineIndex(viewer)));
+        var currentFirstLine = GetFirstVisibleLineNative(viewer);
+        var delta = firstVisibleLine - currentFirstLine;
+        if (delta == 0)
+            return true;
+
+        SendMessage(viewer.Handle, EM_LINESCROLL, IntPtr.Zero, (IntPtr)delta);
+        return true;
     }
 
     private static void SetRedraw(Control control, bool enabled)
@@ -612,6 +668,8 @@ public sealed class FileTabView : UserControl
     }
 
     private const int WM_SETREDRAW = 0x000B;
+    private const int EM_LINESCROLL = 0x00B6;
+    private const int EM_GETFIRSTVISIBLELINE = 0x00CE;
     private const int EM_GETSCROLLPOS = 0x04DD;
     private const int EM_SETSCROLLPOS = 0x04DE;
 
